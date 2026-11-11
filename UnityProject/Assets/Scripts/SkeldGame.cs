@@ -81,6 +81,7 @@ namespace SkeldMap
         public string HumanOutText = "";
         public static bool SkipSelectOnce;
         public static bool SkipMenuOnce;                // รีสตาร์ทแมตช์ → ข้ามเมนูหลัก
+        public static bool OnlineMode;                  // โหมดออนไลน์ (เดินเล่นร่วมกัน): ไม่มีแมตช์ PZ/บอท · โลกไม่หยุดตอนเปิดเมนูพัก
         public bool enablePatientZero = true;
         public bool InMenu { get; private set; }
         public bool Paused { get; private set; }
@@ -340,6 +341,7 @@ namespace SkeldMap
         public static void Restart()
         {
             SkipMenuOnce = true;
+            NetSession.Shutdown(); OnlineMode = false;
             UnityEngine.SceneManagement.SceneManager.LoadScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene().buildIndex);
         }
 
@@ -449,7 +451,12 @@ namespace SkeldMap
                 if (select.Open) select.HandleInput();
                 return;
             }
-            if (wasPaused || Paused) { select.Tick(dt); return; }   // พักเกม: โลกหยุด
+            if (wasPaused || Paused)
+            {
+                select.Tick(dt);
+                if (OnlineMode) Step(dt, false);   // ออนไลน์: เมนูเปิดอยู่แต่โลกไม่หยุด (ไม่รับปุ่ม)
+                return;                            // พักเกม: โลกหยุด
+            }
 
             // Esc = พักเกม (ถ้าไม่ได้เล่นมินิเกม/เลือกตัวละครอยู่)
             if (GameInput.Pressed(KeyCode.Escape) && !Games.Open && !select.Open) { Pause(); return; }
@@ -501,8 +508,12 @@ namespace SkeldMap
             if (playerLight != null) playerLight.enabled = true;
             PosX = MapData.Spawn.x; PosZ = MapData.Spawn.y; Facing = 0f;
             Overview = false; HumanOutText = ""; Shake = 0f;
-            PZ = new PZ(this, rs);
-            pzHud = new PZHud(this);
+            if (OnlineMode) { PZ = null; pzHud = null; }   // ออนไลน์: ไม่เริ่มแมตช์/บอท (กลางวันเสมอ เพราะ PZ.NightAmount = 0)
+            else
+            {
+                PZ = new PZ(this, rs);
+                pzHud = new PZHud(this);
+            }
             RefreshGun();
             ApplyTransforms(0f, false);
             UpdateCamera(0.016f);
@@ -516,6 +527,7 @@ namespace SkeldMap
         public void BackToMenu()
         {
             SkipMenuOnce = false;
+            NetSession.Shutdown(); OnlineMode = false;
             UnityEngine.SceneManagement.SceneManager.LoadScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene().buildIndex);
         }
 

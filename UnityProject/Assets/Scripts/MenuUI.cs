@@ -48,6 +48,40 @@ namespace SkeldMap
 
         void Toast(string s) { toast = s; toastT = 2.2f; }
 
+        // ───── ออนไลน์ ─────
+        // ออกจากหน้าสร้าง/เข้าร่วมห้องโดยยังไม่ได้เริ่มเล่น → ปิดการเชื่อมต่อที่ค้างอยู่
+        void LeaveOnline()
+        {
+            if (!SkeldGame.OnlineMode && !NetSession.Busy) { NetSession.Shutdown(); NetSession.Status = ""; NetSession.Error = ""; }
+        }
+
+        void StartOnline()
+        {
+            SkeldGame.OnlineMode = true;
+            GameSettings.Save();
+            g.StartMatch(GameSettings.Room);
+        }
+
+        async void DoHost()
+        {
+            string code = await NetSession.HostAsync();
+            if (code == null) Toast("สร้างห้องออนไลน์ไม่สำเร็จ");
+        }
+
+        void DoHostLan()
+        {
+            if (!NetSession.HostLan()) Toast("สร้างห้อง LAN ไม่สำเร็จ");
+        }
+
+        async void DoJoin(string code)
+        {
+            // มีจุด = IP (LAN) · ไม่มี = รหัส Relay
+            if (code.Contains(".")) await NetSession.JoinLan(code);
+            else await NetSession.JoinAsync(code);
+            if (g == null) return;   // ฉากถูกโหลดใหม่ระหว่างรอ
+            if (NetSession.Active) StartOnline();
+        }
+
         // ═════════════ ปุ่มลัด ═════════════
         public void Tick(float dt)
         {
@@ -64,7 +98,7 @@ namespace SkeldMap
                     break;
                 case Page.Lobby:
                 case Page.Join:
-                    if (GameInput.Pressed(KeyCode.Escape)) { GameSettings.Save(); page = Page.Main; }
+                    if (GameInput.Pressed(KeyCode.Escape)) { GameSettings.Save(); LeaveOnline(); page = Page.Main; }
                     break;
                 case Page.Settings:
                 case Page.HowTo:
@@ -195,7 +229,7 @@ namespace SkeldMap
                 Box(tipR, new Color(0.18f, 0.06f, 0.06f, 0.85f), new Color(Red.r, Red.g, Red.b, 0.4f), 14f);
                 Text(new Rect(tipR.x + 24, tipR.y + 14, 400, 22), "เคล็ดลับ", 13, Red, TextAnchor.UpperLeft, true);
                 Text(new Rect(tipR.x + 24, tipR.y + 38, 402, 66), Tips[(int)(t / 7f) % Tips.Length], 16, Txt, TextAnchor.UpperLeft, false, true);
-                Text(new Rect(0, CH - 40, CW, 24), "ออนไลน์หลายผู้เล่น: เร็ว ๆ นี้", 13, new Color(1, 1, 1, 0.35f), TextAnchor.MiddleCenter);
+                Text(new Rect(0, CH - 40, CW, 24), "ออนไลน์: เดินเล่นร่วมกัน (ทดลอง) · สร้างห้องหรือเข้าร่วมด้วยรหัส", 13, new Color(1, 1, 1, 0.35f), TextAnchor.MiddleCenter);
             }
         }
 
@@ -211,12 +245,18 @@ namespace SkeldMap
             rs.roomName = TextRow(new Rect(x, y, w, 46), "ชื่อห้อง", rs.roomName, 24); y += rh;
             // รหัสห้อง
             Label(new Rect(x, y, 300, 46), "รหัสห้อง");
-            if (rep) Text(new Rect(x + 400, y, 200, 46), rs.code, 26, Cyan, TextAnchor.MiddleLeft, true);
-            if (Btn(new Rect(x + w - 150, y + 4, 150, 38), "สุ่มรหัสใหม่", false, true, 15)) rs.code = RoomSettings.NewCode();
+            bool hosting = NetSession.IsHost;
+            if (rep) Text(new Rect(x + 400, y, 360, 46), hosting ? NetSession.JoinCode : rs.code, hosting ? 30 : 26, hosting ? Green : Cyan, TextAnchor.MiddleLeft, true);
+            if (Btn(new Rect(x + w - 150, y + 4, 150, 38), "สุ่มรหัสใหม่", false, !hosting, 15)) rs.code = RoomSettings.NewCode();
             y += rh;
             // โหมด
             Label(new Rect(x, y, 300, 46), "โหมด");
-            if (rep) Text(new Rect(x + 400, y, w - 400, 46), "ออฟไลน์ (เล่นกับบอท)   <color=#888>ออนไลน์: เร็ว ๆ นี้</color>", 17, Txt, TextAnchor.MiddleLeft);
+            if (hosting || NetSession.Busy || NetSession.Error != "")
+            {
+                string msg = NetSession.Error != "" ? "<color=#ff6a6a>" + NetSession.Error + "</color>" : hosting ? (NetSession.JoinCode.Contains(".") ? "<color=#4cff8a>ห้อง LAN พร้อมแล้ว — ให้เพื่อนใส่ IP นี้ (เครือข่ายเดียวกัน)</color>" : "<color=#4cff8a>ห้องออนไลน์พร้อมแล้ว — ส่งรหัสให้เพื่อน</color>") : NetSession.Status;
+                if (rep) Text(new Rect(x + 400, y, w - 400, 46), msg, 15, Txt, TextAnchor.MiddleLeft);
+            }
+            else if (rep) Text(new Rect(x + 400, y, w - 400, 46), "ออฟไลน์ (เล่นกับบอท) หรือสร้างห้อง LAN / ออนไลน์ด้านล่าง", 17, Txt, TextAnchor.MiddleLeft);
             y += rh;
 
             rs.players = Mathf.RoundToInt(SliderRow(1, new Rect(x, y, w, 46), "จำนวนผู้เล่น", rs.players, 5, 10, v => $"{Mathf.RoundToInt(v)} คน")); y += rh;
@@ -246,11 +286,18 @@ namespace SkeldMap
                 for (int i = 1; i < rs.players; i++, py += 52)
                     Slot(new Rect(right.x + 28, py, right.width - 56, 44), "บอท " + (i), "ผู้เล่นคอมพิวเตอร์", SlotColor(i), false);
                 Text(new Rect(right.x + 32, right.yMax - 120, right.width - 64, 90),
-                     "ห้องนี้เล่นออฟไลน์กับบอท · เมื่อมีระบบออนไลน์ รหัสห้อง " + rs.code + " จะใช้ชวนเพื่อนเข้าห้องได้", 14, Dim, TextAnchor.UpperLeft, false, true);
+                     hosting ? "ห้องออนไลน์: กด \"เริ่มเดินเล่น\" แล้วให้เพื่อนใส่รหัส " + NetSession.JoinCode + " ในหน้า \"เข้าร่วมห้อง\" (โหมดเดินเล่นร่วมกัน ไม่มีบอท/ภารกิจแมตช์)"
+                             : "\"เริ่มเกม\" เล่นออฟไลน์กับบอท · \"สร้างห้องออนไลน์\" เพื่อเดินเล่นร่วมกับเพื่อน", 14, Dim, TextAnchor.UpperLeft, false, true);
             }
 
-            if (Btn(new Rect(70, 836, 200, 48), "← กลับ", false, true, 17)) { GameSettings.Save(); page = Page.Main; }
+            if (Btn(new Rect(70, 836, 200, 48), "← กลับ", false, true, 17)) { GameSettings.Save(); LeaveOnline(); page = Page.Main; }
             if (Btn(new Rect(290, 836, 240, 48), "เลือกตัวละคร", false, true, 17)) g.Select.Show();
+            if (!hosting)
+            {
+                if (Btn(new Rect(550, 836, 300, 48), "สร้างห้อง LAN (วงเดียวกัน)", false, !NetSession.Busy, 17)) DoHostLan();
+                if (Btn(new Rect(860, 836, 260, 48), NetSession.Busy ? "กำลังสร้างห้อง..." : "สร้างห้องออนไลน์ (Relay)", false, !NetSession.Busy, 16)) DoHost();
+            }
+            else if (Btn(new Rect(550, 836, 260, 48), "เริ่มเดินเล่น", false, true, 17)) StartOnline();
             if (Btn(new Rect(1130, 830, 400, 60), "เริ่มเกม", true)) { GameSettings.Save(); g.StartMatch(rs); }
         }
 
@@ -276,16 +323,18 @@ namespace SkeldMap
             var p = new Rect(CW / 2 - 400, 220, 800, 440);
             if (rep) { Box(p, Panel, Edge, 16f); Text(new Rect(p.x + 32, p.y + 18, 600, 40), "เข้าร่วมห้อง", 32, Yellow, TextAnchor.MiddleLeft, true); }
             Label(new Rect(p.x + 32, p.y + 100, 200, 46), "รหัสห้อง");
-            string c = TextBox(new Rect(p.x + 200, p.y + 100, 320, 46), joinCode, 5, "XXXXX");
-            joinCode = c.ToUpperInvariant();
-            Btn(new Rect(p.x + 540, p.y + 100, 220, 46), "เข้าร่วม", false, false);
+            string c = TextBox(new Rect(p.x + 200, p.y + 100, 320, 46), joinCode, 21, "IP (192.168.x.x) หรือรหัส Relay");
+            joinCode = c.Trim(); if (!joinCode.Contains(".") && !joinCode.Contains(":")) joinCode = joinCode.ToUpperInvariant();
+            if (Btn(new Rect(p.x + 540, p.y + 100, 220, 46), NetSession.Busy ? "กำลังเชื่อมต่อ..." : "เข้าร่วม", true, !NetSession.Busy && joinCode.Length > 0)) DoJoin(joinCode);
             if (rep)
             {
-                Box(new Rect(p.x + 32, p.y + 180, p.width - 64, 120), new Color(0.2f, 0.12f, 0.04f, 0.9f), new Color(Yellow.r, Yellow.g, Yellow.b, 0.5f), 12f);
-                Text(new Rect(p.x + 52, p.y + 192, p.width - 104, 100), "เวอร์ชันนี้ยังไม่รองรับการเล่นออนไลน์\nตอนนี้เล่นกับบอทได้ผ่าน \"สร้างห้อง\" หรือ \"เริ่มเกมทันที\" · ระบบออนไลน์ (Host เป็น Server) จะมาในขั้นถัดไป",
-                     16, Txt, TextAnchor.UpperLeft, false, true);
+                bool err = NetSession.Error != "";
+                Color ec = err ? Red : Yellow;
+                Box(new Rect(p.x + 32, p.y + 180, p.width - 64, 120), err ? new Color(0.25f, 0.06f, 0.06f, 0.9f) : new Color(0.2f, 0.12f, 0.04f, 0.9f), new Color(ec.r, ec.g, ec.b, 0.5f), 12f);
+                string msg = err ? NetSession.Error : NetSession.Busy ? NetSession.Status : "ใส่ IP ของเพื่อน (เช่น 192.168.1.5) = เล่น LAN · ใส่รหัส Relay = เล่นออนไลน์"+(joinCode.Length > 0 ? "\nตรวจพบ: " + (joinCode.Contains(".") ? "โหมด LAN (IP)" : "โหมดออนไลน์ (รหัส Relay)") : "")+"\nโหมดออนไลน์ตอนนี้เป็นการเดินเล่นร่วมกัน (ยังไม่มีบอท/ภารกิจแมตช์)";
+                Text(new Rect(p.x + 52, p.y + 192, p.width - 104, 100), msg, 16, Txt, TextAnchor.UpperLeft, false, true);
             }
-            if (Btn(new Rect(p.x + 32, p.yMax - 70, 200, 48), "← กลับ", false, true, 17)) page = Page.Main;
+            if (Btn(new Rect(p.x + 32, p.yMax - 70, 200, 48), "← กลับ", false, true, 17)) { LeaveOnline(); page = Page.Main; }
             if (Btn(new Rect(p.xMax - 332, p.yMax - 70, 300, 48), "สร้างห้องแทน", true, true, 17)) page = Page.Lobby;
         }
 
