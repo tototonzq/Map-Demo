@@ -247,7 +247,15 @@ namespace SkeldMap
             Label(new Rect(x, y, 300, 46), "รหัสห้อง");
             bool hosting = NetSession.IsHost;
             if (rep) Text(new Rect(x + 400, y, 360, 46), hosting ? NetSession.JoinCode : rs.code, hosting ? 30 : 26, hosting ? Green : Cyan, TextAnchor.MiddleLeft, true);
-            if (Btn(new Rect(x + w - 150, y + 4, 150, 38), "สุ่มรหัสใหม่", false, !hosting, 15)) rs.code = RoomSettings.NewCode();
+            if (hosting)
+            {
+                if (Btn(new Rect(x + w - 150, y + 4, 150, 38), "คัดลอก", false, true, 15))
+                {
+                    GUIUtility.systemCopyBuffer = NetSession.JoinCode;
+                    Toast("คัดลอก " + NetSession.JoinCode + " แล้ว");
+                }
+            }
+            else if (Btn(new Rect(x + w - 150, y + 4, 150, 38), "สุ่มรหัสใหม่", false, true, 15)) rs.code = RoomSettings.NewCode();
             y += rh;
             // โหมด
             Label(new Rect(x, y, 300, 46), "โหมด");
