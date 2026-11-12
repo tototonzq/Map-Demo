@@ -39,6 +39,7 @@ namespace SkeldMap
         public int humanRole = 0;            // 0 สุ่ม · 1 ผู้รอดชีวิต · 2 ผู้ติดเชื้อต้นตอ
         public bool abilities = true;        // ความสามารถของอาชีพ (หมอ/ตำรวจ)
         public string code = "";
+        public string mapId = "skeld";       // แมปที่ใช้ (skeld / aurora)
 
         public int MaxInfected => Mathf.Clamp((players - 1) / 3, 1, 3);
         public void Clamp()

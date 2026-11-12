@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading.Tasks;
+using Unity.Collections;
 using Unity.Networking.Transport.Relay;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
@@ -24,6 +25,33 @@ namespace SkeldMap
         public static bool Busy;               // กำลังเชื่อมต่ออยู่
         public static string JoinCode = "";    // รหัสห้อง Relay (เฉพาะ host)
 
+        // ───── ซิงก์แมป: host ส่ง mapId ให้ client ที่เพิ่งเชื่อมต่อ ─────
+        const string MapMsg = "pz.map";
+        public static string HostMapId;        // mapId ที่ host ส่งมา (null = ยังไม่ได้รับ) — ฝั่ง client
+        public static string PendingJoin;      // เข้าร่วมซ้ำอัตโนมัติหลังสลับแมปแล้วโหลดฉากใหม่
+
+        static void SendMapTo(ulong clientId)
+        {
+            var nm = NetworkManager.Singleton;
+            if (nm == null || !nm.IsServer || clientId == nm.LocalClientId || nm.CustomMessagingManager == null) return;
+            using (var w = new FastBufferWriter(64, Allocator.Temp))
+            {
+                w.WriteValueSafe(MapData.CurrentId);
+                nm.CustomMessagingManager.SendNamedMessage(MapMsg, clientId, w);
+            }
+        }
+
+        static void RegisterMapHandler()
+        {
+            var nm = NetworkManager.Singleton;
+            if (nm == null || nm.CustomMessagingManager == null) return;
+            nm.CustomMessagingManager.RegisterNamedMessageHandler(MapMsg, (ulong sender, FastBufferReader reader) =>
+            {
+                reader.ReadValueSafe(out string id);
+                HostMapId = id;
+            });
+        }
+
         public static bool Active =>
             NetworkManager.Singleton != null && (NetworkManager.Singleton.IsHost || NetworkManager.Singleton.IsConnectedClient);
 
@@ -38,6 +66,7 @@ namespace SkeldMap
             UnityEngine.Object.DontDestroyOnLoad(go);
             nm.NetworkConfig = new NetworkConfig();
             nm.NetworkConfig.NetworkTransport = ut;
+            nm.OnClientConnectedCallback += SendMapTo;
             nm.NetworkConfig.PlayerPrefab = Resources.Load<GameObject>("Net/NetPlayer");
             if (nm.NetworkConfig.PlayerPrefab == null)
                 Debug.LogWarning("[Net] ไม่พบ Resources/Net/NetPlayer — รัน Skeld/Create Net Prefab ก่อน");
@@ -100,7 +129,9 @@ namespace SkeldMap
                 if (ip.Length == 0) throw new Exception("กรุณาใส่ IP ของผู้สร้างห้อง");
                 var ut = EnsureNetworkManager();
                 ut.SetConnectionData(ip, port);
+                HostMapId = null;
                 if (!NetworkManager.Singleton.StartClient()) throw new Exception("เริ่ม Client ไม่สำเร็จ");
+                RegisterMapHandler();   // CustomMessagingManager ถูกสร้างตอน StartClient · ข้อความจะมาถึงหลังเชื่อมต่อเท่านั้น
                 float t = 0f;
                 while (NetworkManager.Singleton != null && !NetworkManager.Singleton.IsConnectedClient && t < 10f)
                 {
@@ -176,7 +207,9 @@ namespace SkeldMap
                 var ut = EnsureNetworkManager();
                 JoinAllocation ja = await RelayService.Instance.JoinAllocationAsync(code);
                 ut.SetRelayServerData(new RelayServerData(ja, "dtls"));
+                HostMapId = null;
                 if (!NetworkManager.Singleton.StartClient()) throw new Exception("เริ่ม Client ไม่สำเร็จ");
+                RegisterMapHandler();
                 float t = 0f;
                 while (NetworkManager.Singleton != null && !NetworkManager.Singleton.IsConnectedClient && t < 15f)
                 {

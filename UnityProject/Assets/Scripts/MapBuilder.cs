@@ -151,7 +151,7 @@ namespace SkeldMap
             {
                 float width = Mathf.Min(r.w - 1.5f, 0.75f * r.name.Length + 1.5f);
                 float lx = r.labelX ?? r.x + r.w / 2f;
-                float lz = r.labelZ ?? r.z + 1.9f + (r.id == "cafeteria" ? 0.5f : 0f);
+                float lz = r.labelZ ?? r.z + 1.9f;
 
                 var go = new GameObject("Label_" + r.name);
                 go.transform.SetParent(labels, false);

@@ -28,12 +28,8 @@ namespace SkeldMap
         // พาเลตต์: 0 = ส้ม (ค่าเริ่มต้น + ทางเดิน), 1 = ฟ้า (variation-a), 2 = เขียว (variation-b)
         static int VariantOf(string roomId)
         {
-            switch (roomId)
-            {
-                case "medbay": case "security": case "navigation": case "shields": case "comms": return 1;
-                case "o2": case "electrical": return 2;
-                default: return 0;
-            }
+            var f = MapData.Current.KitVariant;
+            return f != null ? f(roomId) : 0;
         }
 
         // ทิศบนกริด (dx, dz) · z บนกริดกลับด้านกับ world → world = (dx, 0, -dz)

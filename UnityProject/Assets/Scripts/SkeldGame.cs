@@ -36,7 +36,7 @@ namespace SkeldMap
         public MapGrid Grid { get; private set; }
         public float PosX, PosZ, Facing;
         public readonly List<TaskState> Tasks = new List<TaskState>();
-        public string LocationName = "CAFETERIA";
+        public string LocationName = "";
         public bool PromptVisible;
         public string PromptText = "";
         public float HoldProgress;           // 0..1
@@ -123,6 +123,9 @@ namespace SkeldMap
             if (built) return;
             built = true;
 
+            string wantMap = GameSettings.Room != null ? GameSettings.Room.mapId : null;
+            MapData.Select(string.IsNullOrEmpty(wantMap) ? "skeld" : wantMap);
+            LocationName = MapData.RoomName(MapData.MeetingRoomId);
             Grid = new MapGrid();
             SetupRenderSettings();
             SetupCamera();

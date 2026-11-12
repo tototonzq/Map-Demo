@@ -41,7 +41,21 @@ namespace SkeldMap
         public bool Visible => page != Page.None;
         public bool IsPause => page == Page.Pause || (ret == Page.Pause && (page == Page.Settings || page == Page.HowTo || page == Page.Confirm));
 
-        public void ShowTitle() { page = Page.Title; t = 0f; }
+        // ตั้งค่าให้เมนูถัดไป (หลังโหลดฉากใหม่) เด้งไปหน้าสร้างห้องเลย — ใช้ตอนเปลี่ยนแมป
+        public static bool ReturnToLobbyOnce;
+
+        public void ShowTitle()
+        {
+            page = Page.Title; t = 0f;
+            if (ReturnToLobbyOnce) { ReturnToLobbyOnce = false; page = Page.Lobby; GameSettings.Room.Clamp(); }
+            else if (NetSession.PendingJoin != null)
+            {
+                string code = NetSession.PendingJoin; NetSession.PendingJoin = null;
+                joinCode = code; page = Page.Join;
+                NetSession.Error = ""; NetSession.Status = "สลับแมพตามโฮสต์แล้ว กำลังเข้าร่วมใหม่...";
+                DoJoin(code, rejoin: true);
+            }
+        }
         public void ShowMain() { page = Page.Main; }
         public void ShowPause() { page = Page.Pause; ret = Page.Pause; }
         public void Hide() { page = Page.None; GameSettings.Save(); }
@@ -73,13 +87,44 @@ namespace SkeldMap
             if (!NetSession.HostLan()) Toast("สร้างห้อง LAN ไม่สำเร็จ");
         }
 
-        async void DoJoin(string code)
+        static void ReloadScene()
+        {
+            SkeldGame.SkipMenuOnce = false; SkeldGame.OnlineMode = false;
+            UnityEngine.SceneManagement.SceneManager.LoadScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene().buildIndex);
+        }
+
+        // เปลี่ยนแมป (ออฟไลน์/ก่อนสร้างห้อง): บันทึกแล้วโหลดฉากใหม่ กลับมาหน้าสร้างห้อง
+        void ChangeMap(string mapId)
+        {
+            GameSettings.Room.mapId = mapId;
+            GameSettings.Save();
+            ReturnToLobbyOnce = true;
+            ReloadScene();
+        }
+
+        async void DoJoin(string code, bool rejoin = false)
         {
             // มีจุด = IP (LAN) · ไม่มี = รหัส Relay
             if (code.Contains(".")) await NetSession.JoinLan(code);
             else await NetSession.JoinAsync(code);
             if (g == null) return;   // ฉากถูกโหลดใหม่ระหว่างรอ
-            if (NetSession.Active) StartOnline();
+            if (!NetSession.Active) return;
+            // รอข้อความแมปจากโฮสต์ (≤3 วินาที) · ถ้าต่างจากแมปของเรา → สลับแมปแล้วเข้าร่วมใหม่
+            float wait = 0f;
+            while (NetSession.HostMapId == null && wait < 3f && NetSession.Active) { await System.Threading.Tasks.Task.Delay(100); wait += 0.1f; }
+            if (g == null) return;
+            string hm = NetSession.HostMapId;
+            if (!string.IsNullOrEmpty(hm) && hm != MapData.CurrentId && !rejoin)
+            {
+                NetSession.Shutdown();
+                GameSettings.Room.mapId = hm;
+                GameSettings.Save();
+                NetSession.PendingJoin = code;
+                NetSession.Status = "สลับแมพตามโฮสต์แล้ว กำลังเข้าร่วมใหม่...";
+                ReloadScene();
+                return;
+            }
+            StartOnline();
         }
 
         // ═════════════ ปุ่มลัด ═════════════
@@ -257,6 +302,13 @@ namespace SkeldMap
             }
             else if (Btn(new Rect(x + w - 150, y + 4, 150, 38), "สุ่มรหัสใหม่", false, true, 15)) rs.code = RoomSettings.NewCode();
             y += rh;
+            // แมพ
+            {
+                int mi = System.Array.IndexOf(MapData.MapIds, MapData.CurrentId); if (mi < 0) mi = 0;
+                int ni = ChoiceRow(new Rect(x, y, w, 46), "แมพ", mi, MapData.MapNames, !hosting && !NetSession.Busy);
+                if (ni != mi && !hosting && !NetSession.Busy) ChangeMap(MapData.MapIds[ni]);
+                y += rh;
+            }
             // โหมด
             Label(new Rect(x, y, 300, 46), "โหมด");
             if (hosting || NetSession.Busy || NetSession.Error != "")
@@ -423,7 +475,7 @@ namespace SkeldMap
                 string[,] keys =
                 {
                     { "W A S D / ลูกศร", "เดิน (สัมพันธ์กับทิศกล้อง)" }, { "Q / E", "หมุนกล้อง" }, { "ล้อเมาส์", "ซูมเข้า/ออก" },
-                    { "M / Tab", "แผนที่ทั้งหมด (Overview)" }, { "F / Space", "ทำภารกิจที่จุดเหลือง · เรียกประชุมที่ปุ่มแดงโรงอาหาร" },
+                    { "M / Tab", "แผนที่ทั้งหมด (Overview)" }, { "F / Space", "ทำภารกิจที่จุดเหลือง · เรียกประชุมที่ปุ่มแดงห้องประชุม (โต๊ะกลาง)" },
                     { "B", "กัด (ผู้ติดเชื้อ)" }, { "T", "ตรวจเลือด (หมอ)" }, { "G", "ยิง (ตำรวจ)" },
                     { "V", "เปิด/ปิดหมอก" }, { "N", "เปิด/ปิดเสียง" }, { "C / [ ]", "เลือก/สลับตัวละคร" },
                     { "Esc", "พักเกม / ปิดมินิเกม" }, { "F11", "สลับเต็มจอ/หน้าต่าง" },
@@ -456,7 +508,7 @@ namespace SkeldMap
                 float cx1 = p.x + 40, cx2 = p.x + 660, y = p.y + 84;
                 Section(cx1, y, 580, "เป้าหมาย", "<color=#4cff8a>ผู้รอดชีวิต</color> ทำภารกิจเพื่อผลิตวัคซีนให้ครบ และกักกันผู้ติดเชื้อต้นตอ\n<color=#ff5a5a>ผู้ติดเชื้อ</color> ซ่อนตัว กัดผู้อื่นตอนไม่มีใครเห็น จนมีจำนวนมากกว่าหรือเท่ากับผู้รอดชีวิต");
                 Section(cx1, y + 150, 580, "การติดเชื้อ", "ถูกกัดแล้วจะ <b>ฟักเชื้อ 30–60 วินาที</b> ก่อนกลายเป็นซอมบี้\nผู้ฟักเชื้อมีอาการ: ไอ จอแดง กล้องสั่น — สังเกตคนรอบตัว แต่ผู้รอดชีวิตที่เครียดก็ไอหลอกได้");
-                Section(cx1, y + 300, 580, "ประชุมและโหวต", "กดปุ่มแดงที่โต๊ะโรงอาหาร (คนละ 1 ครั้ง) หรือรอรุ่งเช้า\nโหวตกักกันผู้ต้องสงสัย — ผู้ถูกกักกันจะถูกเปิดเผยว่าติดเชื้อจริงหรือไม่");
+                Section(cx1, y + 300, 580, "ประชุมและโหวต", "กดปุ่มแดงที่โต๊ะกลางห้องประชุม (คนละ 1 ครั้ง) หรือรอรุ่งเช้า\nโหวตกักกันผู้ต้องสงสัย — ผู้ถูกกักกันจะถูกเปิดเผยว่าติดเชื้อจริงหรือไม่");
                 Section(cx1, y + 440, 580, "กลางวัน-กลางคืน", "กลางวันทำภารกิจ · กลางคืนไฟดับ ซอมบี้ NPC บุกเข้ามา ผู้ติดเชื้อใช้ความมืดบังตัว");
                 Section(cx2, y, 580, "อาชีพ", "<b>หมอ</b>  ตรวจเลือด (T) 2 ครั้ง ผลออกใน 20 วินาที\n<b>ตำรวจ</b>  มีปืนพกติดตัว ยิง (G) 1 นัด — ยิงผิดคนคุณตาย\n<b>นักวิทยาศาสตร์</b>  เห็นความคืบหน้าวัคซีนละเอียด\n<b>ผู้รอดชีวิต</b>  ไม่มีความสามารถพิเศษ แต่ไม่ถูกสงสัยมากที่สุด");
                 Section(cx2, y + 190, 580, "ปุ่มหลัก", "WASD เดิน · F ทำภารกิจ/เรียกประชุม · B กัด · T ตรวจเลือด · G ยิง\nQ/E หมุนกล้อง · M แผนที่ · Esc พักเกม · C เลือกตัวละคร");

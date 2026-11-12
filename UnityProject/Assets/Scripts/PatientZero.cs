@@ -72,7 +72,7 @@ namespace SkeldMap
         public readonly List<string> clues = new List<string>();
         public BiteFx fx;
         public bool autoPilot;                  // true = ผู้เล่นถูกควบคุมโดย AI (ใช้ทดสอบจำลองแมตช์)
-        public static readonly Vector2 ButtonPos = new Vector2(49f, 14f);   // ปุ่มประชุมบนโต๊ะโรงอาหาร
+        public static Vector2 ButtonPos => MapData.ButtonPos;   // ปุ่มประชุมบนโต๊ะห้องประชุม
         public bool CanAct => (phase == Phase.Day || phase == Phase.Night) && me != null && me.Alive;
         public bool Frozen => !CanAct;
         public bool Spectating => me != null && !me.Alive && phase != Phase.Reveal;
@@ -173,7 +173,7 @@ namespace SkeldMap
                                 : a.job == Job.Police ? "character-male-c" : survivorLooks[lookI++ % survivorLooks.Count];
                     a.av = Avatar.Create(look);
                     a.av.Root.transform.SetParent(g.transform, false);
-                    var p = FreeSpot(MapData.Rooms[IndexOfRoom("cafeteria")], 0.9f);
+                    var p = FreeSpot(MapData.Rooms[IndexOfRoom(MapData.MeetingRoomId)], 0.9f);
                     a.x = p.x; a.z = p.y;
                     a.facing = (float)(rng.NextDouble() * Mathf.PI * 2);
                 }
@@ -226,7 +226,7 @@ namespace SkeldMap
                     for (int j = i + 1; j < actors.Count; j++)
                     {
                         var a = actors[i]; var b = actors[j];
-                        if (Dist(a, b) < 0.9f && !a.human && !b.human) { var p = FreeSpot(MapData.Rooms[IndexOfRoom("cafeteria")], 0.9f); b.x = p.x; b.z = p.y; }
+                        if (Dist(a, b) < 0.9f && !a.human && !b.human) { var p = FreeSpot(MapData.Rooms[IndexOfRoom(MapData.MeetingRoomId)], 0.9f); b.x = p.x; b.z = p.y; }
                     }
         }
 
@@ -769,7 +769,7 @@ namespace SkeldMap
         void EndMeeting()
         {
             // ทุกคนกลับไปรวมตัวที่โรงอาหาร (เหมือน Among Us)
-            var caf = MapData.Rooms[IndexOfRoom("cafeteria")];
+            var caf = MapData.Rooms[IndexOfRoom(MapData.MeetingRoomId)];
             foreach (var a in actors)
             {
                 if (!a.OnMap) continue;
